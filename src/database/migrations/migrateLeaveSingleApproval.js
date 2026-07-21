@@ -8,6 +8,7 @@ const LeaveRequest = require('../../modules/leave/leaveRequest.model');
 const { resolveLeaveApprovers } = require('../../modules/workflow/engines/approverResolver.engine');
 const { invokeCallback } = require('../../modules/workflow/registry/moduleCallback.registry');
 const { dbLogger } = require('../../config/logger');
+const { hasMigrationRun, markMigrationRun } = require('./migrationState');
 
 const finalizeApprovedLeave = async (instance, companyId) => {
   const leave = await LeaveRequest.findOne({ _id: instance.entityId, companyId }, null, { companyId });
@@ -28,6 +29,8 @@ const finalizeApprovedLeave = async (instance, companyId) => {
 };
 
 const migrateLeaveSingleApproval = async () => {
+  if (await hasMigrationRun('leave_single_approval_v1')) return;
+
   const companies = await Company.find({});
 
   for (const company of companies) {
@@ -175,6 +178,7 @@ const migrateLeaveSingleApproval = async () => {
   }
 
   dbLogger.info('Leave single-approval migration completed');
+  await markMigrationRun('leave_single_approval_v1');
 };
 
 module.exports = { migrateLeaveSingleApproval };

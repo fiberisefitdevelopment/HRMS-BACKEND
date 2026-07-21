@@ -33,9 +33,11 @@ const seedDatabase = async () => {
     await seedHolidays();
     await seedWorkflowTemplates();
     await seedPolicyEngine();
-    await seedHrmsExcelData();
-    await seedManagerTestData();
-    await seedEmployeeAttendanceTestData();
+    if (process.env.SEED_ON_START === 'true') {
+      await seedHrmsExcelData();
+      await seedManagerTestData();
+      await seedEmployeeAttendanceTestData();
+    }
     await migrateLeaveSingleApproval();
     await migrateEmployeeCodes();
     await migrateLeaveBalances();

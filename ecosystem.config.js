@@ -10,6 +10,7 @@ module.exports = {
       max_memory_restart: '512M',
       env_production: {
         NODE_ENV: 'production',
+        SEED_ON_START: 'false',
       },
       error_file: 'logs/pm2-error.log',
       out_file: 'logs/pm2-out.log',

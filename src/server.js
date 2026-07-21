@@ -8,6 +8,10 @@ const startServer = async () => {
   await connectDatabase();
 
   if (config.seed.runOnStart || config.isDevelopment) {
+    logger.info('Running startup database sync...', {
+      runOnStart: config.seed.runOnStart,
+      env: config.env,
+    });
     await seedDatabase();
   }
 

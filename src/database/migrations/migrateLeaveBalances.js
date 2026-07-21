@@ -1,16 +1,22 @@
 const EmployeeProfile = require('../../modules/employees/employeeProfile.model');
 const { initializeLeaveBalances } = require('../../modules/leave/helpers/balanceInit.helper');
 const { dbLogger } = require('../../config/logger');
+const { hasMigrationRun, markMigrationRun } = require('./migrationState');
 
 /**
  * Backfill leave balances for all active employees based on company leave policy.
  */
 const migrateLeaveBalances = async () => {
+  if (await hasMigrationRun('leave_balances_v1')) return;
+
   const profiles = await EmployeeProfile.find({ isDeleted: false, status: 'active' }).select(
     '_id userId companyId employeeId'
   );
 
-  if (!profiles.length) return;
+  if (!profiles.length) {
+    await markMigrationRun('leave_balances_v1');
+    return;
+  }
 
   let initialized = 0;
   let skipped = 0;
@@ -47,6 +53,8 @@ const migrateLeaveBalances = async () => {
   if (initialized || skipped) {
     dbLogger.info(`Leave balance migration complete — initialized ${initialized}, skipped ${skipped}`);
   }
+
+  await markMigrationRun('leave_balances_v1');
 };
 
 module.exports = { migrateLeaveBalances };

@@ -7,7 +7,7 @@ const { getDateOnly, parseTimeToMinutes } = require('../../utils/time');
 const { isWeeklyOffDay } = require('../../modules/comp-off/compOff.eligibility');
 
 const TEST_MARKER = '[ATTENDANCE_TEST_SEED]';
-const TARGET_CODES = ['FR0003', 'FR0005'];
+const TARGET_CODES = ['FR0002', 'FR0003', 'FR0005'];
 
 const LOCATION = { latitude: 28.5355, longitude: 77.391, accuracyMeters: 20 };
 
@@ -127,6 +127,29 @@ const buildAttendanceRecord = ({
 
 /** July 2026 attendance scenarios for leave / comp-off / regularization testing. */
 const SCENARIOS = {
+  FR0002: {
+    '2026-07-01': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
+    '2026-07-02': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
+    '2026-07-03': { punchIn: '10:00 AM', punchOut: '06:00 PM' },
+    '2026-07-04': { punchIn: '10:00 AM', punchOut: '06:00 PM' },
+    '2026-07-05': 'week_off',
+    '2026-07-06': { punchIn: '09:00 AM', punchOut: '09:00 PM' },
+    '2026-07-07': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
+    '2026-07-08': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
+    '2026-07-09': 'absent',
+    '2026-07-10': { punchIn: '10:20 AM', punchOut: '06:00 PM' },
+    '2026-07-11': 'week_off',
+    '2026-07-12': 'week_off',
+    '2026-07-13': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
+    '2026-07-14': { punchIn: '09:00 AM' },
+    '2026-07-15': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
+    '2026-07-16': { punchIn: '09:00 AM', punchOut: '08:00 PM' },
+    '2026-07-17': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
+    '2026-07-18': { punchIn: '10:00 AM', punchOut: '03:00 PM' },
+    '2026-07-19': 'week_off',
+    '2026-07-20': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
+    '2026-07-21': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
+  },
   FR0003: {
     '2026-07-01': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
     '2026-07-02': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
@@ -148,6 +171,7 @@ const SCENARIOS = {
     '2026-07-18': 'week_off',
     '2026-07-19': 'week_off',
     '2026-07-20': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
+    '2026-07-21': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
   },
   FR0005: {
     '2026-07-01': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
@@ -170,23 +194,30 @@ const SCENARIOS = {
     '2026-07-18': 'week_off',
     '2026-07-19': 'week_off',
     '2026-07-20': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
+    '2026-07-21': { punchIn: '09:00 AM', punchOut: '06:00 PM' },
   },
 };
 
 const seedEmployeeAttendanceTestData = async () => {
-  const existing = await AttendanceRecord.findOne({ remarks: TEST_MARKER });
-  if (existing) {
-    dbLogger.info('Employee attendance test data already seeded — skipping');
-    return;
-  }
-
   let created = 0;
+  let skipped = 0;
 
   for (const code of TARGET_CODES) {
     const user = await User.findOne({ employeeCode: code });
     const profile = await EmployeeProfile.findOne({ employeeId: code, isDeleted: false });
     if (!user || !profile) {
       dbLogger.warn(`Employee ${code} not found — skipping attendance seed`);
+      continue;
+    }
+
+    const alreadySeeded = await AttendanceRecord.findOne({
+      companyId: profile.companyId,
+      employeeProfileId: profile._id,
+      remarks: TEST_MARKER,
+    });
+    if (alreadySeeded) {
+      skipped += 1;
+      dbLogger.info(`Attendance test data already exists for ${code} — skipping`);
       continue;
     }
 
@@ -217,11 +248,14 @@ const seedEmployeeAttendanceTestData = async () => {
     dbLogger.info(`Attendance test data seeded for ${code}`, { days: Object.keys(scenarios).length });
   }
 
-  dbLogger.info('Employee attendance test data complete', {
-    employees: TARGET_CODES,
-    recordsCreated: created,
-    marker: TEST_MARKER,
-  });
+  if (created || skipped) {
+    dbLogger.info('Employee attendance test data complete', {
+      employees: TARGET_CODES,
+      recordsCreated: created,
+      employeesSkipped: skipped,
+      marker: TEST_MARKER,
+    });
+  }
 };
 
 module.exports = { seedEmployeeAttendanceTestData, TEST_MARKER, SCENARIOS };
