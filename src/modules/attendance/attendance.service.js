@@ -62,6 +62,38 @@ const resolveShiftFromRecord = (shiftId, shiftFallback = null) => {
   return shiftFallback;
 };
 
+const formatId = (value) => {
+  if (!value) return null;
+  if (typeof value === 'object') return value._id ?? value.id ?? null;
+  return value;
+};
+
+const formatUserRef = (user) => {
+  if (!user || typeof user !== 'object') return null;
+  const id = user._id ?? user.id;
+  if (!id) return null;
+  return {
+    id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    fullName: user.fullName,
+    email: user.email,
+  };
+};
+
+const formatEmployeeRef = (profile, user) => {
+  if (!profile || typeof profile !== 'object') return null;
+  const id = profile._id ?? profile.id;
+  if (!id) return null;
+  const userRef = formatUserRef(user);
+  return {
+    id,
+    employeeId: profile.employeeId || null,
+    fullName: userRef?.fullName || null,
+    email: userRef?.email || null,
+  };
+};
+
 const formatRecord = (r, shiftFallback = null) => {
   const shift = resolveShiftFromRecord(r.shiftId, shiftFallback);
   const shiftIdValue =
@@ -72,11 +104,16 @@ const formatRecord = (r, shiftFallback = null) => {
   const computedHours = workingHoursEngine.calculateWorkingHours(r, null);
   const netWorkingMinutes = computedHours.netWorkingMinutes || r.netWorkingMinutes || 0;
   const grossWorkingMinutes = computedHours.grossWorkingMinutes || r.grossWorkingMinutes || 0;
+  const employee = formatEmployeeRef(r.employeeProfileId, r.userId);
+  const user = formatUserRef(r.userId);
 
   return {
     id: r._id,
-    employeeProfileId: r.employeeProfileId,
-    userId: r.userId,
+    employeeId: employee?.employeeId || null,
+    employeeProfileId: formatId(r.employeeProfileId),
+    userId: formatId(r.userId),
+    employee,
+    user,
     shiftId: shiftIdValue,
     shift,
     date: r.date,
@@ -105,8 +142,6 @@ const formatRecord = (r, shiftFallback = null) => {
     isAutoPunchOut: r.isAutoPunchOut,
     remarks: r.remarks,
     lastKnownLocation: locationEngine.resolveDisplayLocation(r),
-    employee: r.employeeProfileId,
-    user: r.userId,
   };
 };
 
@@ -504,20 +539,47 @@ const getTodayAttendance = async (userId, companyId) => {
 
 const listAttendance = async (companyId, query, requester) => {
   const filter = { companyId };
+  const EmployeeProfile = require('../employees/employeeProfile.model');
   const {
     isManagerRole,
-    getTeamUserIds,
+    getTeamUserIdsIncludingSelf,
     assertTeamMemberByProfileId,
     assertTeamMemberByUserId,
+    isSelfProfile,
   } = require('../managers/team.helper');
 
+  if (query.employeeId) {
+    const profile = await EmployeeProfile.findOne(
+      { companyId, employeeId: String(query.employeeId).toUpperCase(), isDeleted: false },
+      null,
+      { companyId }
+    );
+    if (!profile) throw ApiError.notFound('Employee not found');
+    if (requester && isManagerRole(requester) && !isSelfProfile(profile, requester.id)) {
+      await assertTeamMemberByProfileId(requester.id, profile._id, companyId);
+    }
+    filter.employeeProfileId = profile._id;
+  }
+
   if (requester && isManagerRole(requester)) {
-    if (query.employeeProfileId) {
-      await assertTeamMemberByProfileId(requester.id, query.employeeProfileId, companyId);
+    if (query.scope === 'self') {
+      filter.userId = requester.id;
+    } else if (query.employeeProfileId) {
+      const profile = await EmployeeProfile.findOne(
+        { _id: query.employeeProfileId, companyId, isDeleted: false },
+        null,
+        { companyId }
+      );
+      if (!profile) throw ApiError.notFound('Employee not found');
+      if (!isSelfProfile(profile, requester.id)) {
+        await assertTeamMemberByProfileId(requester.id, query.employeeProfileId, companyId);
+      }
     } else if (query.userId) {
-      await assertTeamMemberByUserId(requester.id, query.userId, companyId);
-    } else {
-      const teamUserIds = await getTeamUserIds(requester.id, companyId);
+      if (query.userId.toString() !== requester.id.toString()) {
+        await assertTeamMemberByUserId(requester.id, query.userId, companyId);
+      }
+    } else if (!filter.employeeProfileId) {
+      const teamUserIds = await getTeamUserIdsIncludingSelf(requester.id, companyId);
       filter.userId = { $in: teamUserIds };
     }
   }
@@ -532,7 +594,13 @@ const listAttendance = async (companyId, query, requester) => {
     if (query.dateTo) filter.date.$lte = getDateOnly(new Date(query.dateTo));
   }
 
-  const result = await attendanceRepository.findByDateRange(filter, query, { companyId });
+  const listQuery = { ...query };
+  if (!listQuery.sort) {
+    listQuery.sort =
+      query.employeeId || query.employeeProfileId || query.userId ? '-date' : 'employeeProfileId,-date';
+  }
+
+  const result = await attendanceRepository.findByDateRange(filter, listQuery, { companyId });
   const shiftCache = new Map();
   shiftCache.companyId = companyId;
 

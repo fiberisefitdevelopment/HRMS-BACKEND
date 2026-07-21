@@ -14,7 +14,24 @@ const getTeamUserIds = async (managerUserId, companyId) => {
   return profiles.map((p) => p.userId);
 };
 
+/** Team report user IDs plus the manager's own user ID. */
+const getTeamUserIdsIncludingSelf = async (managerUserId, companyId) => {
+  const teamUserIds = await getTeamUserIds(managerUserId, companyId);
+  const managerKey = managerUserId.toString();
+  if (!teamUserIds.some((id) => id.toString() === managerKey)) {
+    teamUserIds.push(managerUserId);
+  }
+  return teamUserIds;
+};
+
+const isSelfProfile = (profile, userId) => {
+  const profileUserId = profile.userId?._id || profile.userId;
+  return profileUserId && profileUserId.toString() === userId.toString();
+};
+
 const assertTeamMemberByProfile = (profile, managerUserId) => {
+  if (isSelfProfile(profile, managerUserId)) return;
+
   const managerRef = profile.managerId?._id || profile.managerId;
   if (!managerRef || managerRef.toString() !== managerUserId.toString()) {
     throw ApiError.forbidden('You can only access your team members');
@@ -38,6 +55,8 @@ const assertTeamMemberByUserId = async (managerUserId, userId, companyId) => {
 module.exports = {
   isManagerRole,
   getTeamUserIds,
+  getTeamUserIdsIncludingSelf,
+  isSelfProfile,
   assertTeamMemberByProfile,
   assertTeamMemberByProfileId,
   assertTeamMemberByUserId,

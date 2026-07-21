@@ -13,6 +13,7 @@ const {
   attendanceIdParamSchema,
   monthlySummarySchema,
   musterRollQuerySchema,
+  listQuerySchema,
 } = require('./attendance.validation');
 
 const router = Router();
@@ -55,7 +56,7 @@ router.get('/reports/:type', requirePermission('attendance.report'), attendanceC
 router.get('/reports', requirePermission('attendance.report'), attendanceController.report);
 router.get('/export/:type', requirePermission('attendance.export'), attendanceController.exportReport);
 
-router.get('/', requirePermission('attendance.view'), attendanceController.list);
+router.get('/', requirePermission('attendance.view'), validate(listQuerySchema, 'query'), attendanceController.list);
 router.put(
   '/:id/correct',
   requirePermission('attendance.update'),

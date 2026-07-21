@@ -55,6 +55,20 @@ const musterRollQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 
+const listQuerySchema = z.object({
+  employeeId: z.string().trim().min(1).max(20).optional(),
+  employeeProfileId: objectId.optional(),
+  userId: objectId.optional(),
+  shiftId: objectId.optional(),
+  status: z.string().optional(),
+  scope: z.enum(['self', 'team']).optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  sort: z.string().optional(),
+});
+
 module.exports = {
   punchSchema,
   locationHeartbeatSchema,
@@ -63,5 +77,6 @@ module.exports = {
   reportQuerySchema,
   monthlySummarySchema,
   musterRollQuerySchema,
+  listQuerySchema,
   attendanceIdParamSchema: z.object({ id: objectId }),
 };
