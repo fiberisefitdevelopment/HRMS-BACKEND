@@ -3,6 +3,7 @@ const EmployeeProfile = require('../employees/employeeProfile.model');
 const { getDateOnly, getMonthYear } = require('../../utils/time');
 const workingHoursEngine = require('./engines/workingHours.engine');
 const geofenceEngine = require('./engines/geofence.engine');
+const locationEngine = require('./engines/location.engine');
 const attendanceService = require('./attendance.service');
 
 const getEmployeeDashboard = async (userId, companyId) => {
@@ -98,7 +99,7 @@ const getManagerLiveDashboard = async (managerUserId, companyId) => {
       const userId = profile.userId?._id || profile.userId;
       const record = recordByUserId.get(String(userId));
       const hasOpenSession = record ? workingHoursEngine.hasOpenSession(record) : false;
-      const lastKnownLocation = record?.lastKnownLocation || null;
+      const lastKnownLocation = locationEngine.resolveDisplayLocation(record);
 
       let geofenceStatus = null;
       if (lastKnownLocation?.latitude != null && lastKnownLocation?.longitude != null) {

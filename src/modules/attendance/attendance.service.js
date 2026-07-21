@@ -7,6 +7,7 @@ const breakEngine = require('./engines/break.engine');
 const workingHoursEngine = require('./engines/workingHours.engine');
 const regularizationEngine = require('./engines/regularization.engine');
 const geofenceEngine = require('./engines/geofence.engine');
+const locationEngine = require('./engines/location.engine');
 const { getEmployeeProfileByUser } = require('./attendance.helper');
 const EmployeeShiftAssignment = require('../shifts/employeeShiftAssignment.model');
 
@@ -103,7 +104,7 @@ const formatRecord = (r, shiftFallback = null) => {
     attendanceSource: r.attendanceSource,
     isAutoPunchOut: r.isAutoPunchOut,
     remarks: r.remarks,
-    lastKnownLocation: r.lastKnownLocation || null,
+    lastKnownLocation: locationEngine.resolveDisplayLocation(r),
     employee: r.employeeProfileId,
     user: r.userId,
   };
@@ -375,6 +376,17 @@ const updateLocation = async (userId, companyId, body, req) => {
   const coords = extractCoords(body);
   if (!coords) {
     throw ApiError.badRequest('Latitude and longitude are required');
+  }
+
+  if (!locationEngine.shouldAcceptHeartbeatUpdate(record.lastKnownLocation, coords, record)) {
+    const resolvedLocation = locationEngine.resolveDisplayLocation(record);
+    return {
+      lastKnownLocation: resolvedLocation,
+      attendanceStatus: record.attendanceStatus,
+      hasOpenSession: true,
+      locationSkipped: true,
+      reason: 'heartbeat_accuracy_or_distance_rejected',
+    };
   }
 
   const lastKnownLocation = buildLastKnownLocation(coords, 'heartbeat');

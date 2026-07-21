@@ -3,6 +3,8 @@ const EmployeeProfile = require('../employees/employeeProfile.model');
 const EmployeeShiftAssignment = require('../shifts/employeeShiftAssignment.model');
 const CompanyLeavePolicy = require('../leave-policies/companyLeavePolicy.model');
 const CompanyAttendancePolicy = require('../attendance-policies/companyAttendancePolicy.model');
+const LeaveRequest = require('../leave/leaveRequest.model');
+const CompOffRequest = require('../comp-off/compOffRequest.model');
 const { getDateOnly } = require('../../utils/time');
 
 // Muster roll = monthly attendance register (employees × days grid).
@@ -99,7 +101,7 @@ const emptySummary = () => ({
   payableDays: 0,
 });
 
-const resolveCellCode = ({ dayMeta, record, joiningDate, today, workingDays }) => {
+const resolveCellCode = ({ dayMeta, record, joiningDate, today, workingDays, approvedLeave }) => {
   const cellDate = getDateOnly(dayMeta.date);
 
   // Before the employee joined → not applicable.
@@ -107,6 +109,9 @@ const resolveCellCode = ({ dayMeta, record, joiningDate, today, workingDays }) =
 
   // An actual attendance record always wins.
   if (record) return STATUS_CODE[record.attendanceStatus] || 'P';
+
+  // Approved leave without attendance row yet.
+  if (approvedLeave) return 'LV';
 
   // No record: fall back to the employee's work week + company holidays.
   if (dayMeta.isHoliday) return 'H';
@@ -117,6 +122,44 @@ const resolveCellCode = ({ dayMeta, record, joiningDate, today, workingDays }) =
 
   // Past working day with no record → absent.
   return 'A';
+};
+
+const buildLeaveMapsForProfiles = (leaveRequests, monthStart, monthEnd) => {
+  const approvedByProfile = new Map();
+  const pendingByProfile = new Map();
+
+  leaveRequests.forEach((leave) => {
+    if (!leave.startDate || !leave.endDate) return;
+    const profileKey = String(leave.employeeProfileId?._id || leave.employeeProfileId);
+    const start = getDateOnly(leave.startDate);
+    const end = getDateOnly(leave.endDate);
+    const from = start < monthStart ? monthStart : start;
+    const to = end > monthEnd ? monthEnd : end;
+
+    for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
+      const dateKey = toDateKey(d);
+      if (leave.status === 'approved') {
+        if (!approvedByProfile.has(profileKey)) approvedByProfile.set(profileKey, new Map());
+        approvedByProfile.get(profileKey).set(dateKey, leave);
+      } else if (leave.status === 'pending') {
+        if (!pendingByProfile.has(profileKey)) pendingByProfile.set(profileKey, new Map());
+        pendingByProfile.get(profileKey).set(dateKey, leave);
+      }
+    }
+  });
+
+  return { approvedByProfile, pendingByProfile };
+};
+
+const buildCompOffMapForProfiles = (compOffRequests) => {
+  const byProfile = new Map();
+  compOffRequests.forEach((req) => {
+    const profileKey = String(req.employeeProfileId?._id || req.employeeProfileId);
+    const dateKey = toDateKey(req.attendanceDate);
+    if (!byProfile.has(profileKey)) byProfile.set(profileKey, new Map());
+    byProfile.get(profileKey).set(dateKey, req);
+  });
+  return byProfile;
 };
 
 const applyToSummary = (summary, code) => {
@@ -188,6 +231,7 @@ const getMusterRoll = async (companyId, query) => {
   // Scope employees for this company (optionally filter by department / status).
   const employeeFilter = { companyId, isDeleted: false };
   if (query.departmentId) employeeFilter.departmentId = query.departmentId;
+  if (query.managerId) employeeFilter.managerId = query.managerId;
   if (query.status) employeeFilter.status = query.status;
   if (query.search) {
     employeeFilter.employeeId = { $regex: query.search, $options: 'i' };
@@ -205,7 +249,7 @@ const getMusterRoll = async (companyId, query) => {
 
   const profileIds = profiles.map((p) => p._id);
 
-  const [records, assignments] = await Promise.all([
+  const [records, assignments, leaveRequests, compOffRequests] = await Promise.all([
     AttendanceRecord.find(
       {
         companyId,
@@ -220,11 +264,41 @@ const getMusterRoll = async (companyId, query) => {
       null,
       { companyId }
     ).populate('shiftId', 'name code workingDays'),
+    LeaveRequest.find(
+      {
+        companyId,
+        employeeProfileId: { $in: profileIds },
+        status: { $in: ['pending', 'approved'] },
+        startDate: { $lte: monthEnd },
+        endDate: { $gte: monthStart },
+      },
+      null,
+      { companyId }
+    ).select(
+      'employeeProfileId userId leaveType leaveTypeCode startDate endDate totalDays status reason appliedOn'
+    ),
+    CompOffRequest.find(
+      {
+        companyId,
+        employeeProfileId: { $in: profileIds },
+        attendanceDate: { $gte: monthStart, $lte: monthEnd },
+      },
+      null,
+      { companyId }
+    ).select(
+      'employeeProfileId userId attendanceDate requestedDays eligibilityType status reason overtimeMinutes'
+    ),
   ]);
 
   const assignmentMap = new Map(
     assignments.map((assignment) => [String(assignment.employeeProfileId), assignment])
   );
+  const { approvedByProfile, pendingByProfile } = buildLeaveMapsForProfiles(
+    leaveRequests,
+    monthStart,
+    monthEnd
+  );
+  const compOffByProfile = buildCompOffMapForProfiles(compOffRequests);
 
   // Index records by profile + day for O(1) cell lookup.
   const recordMap = new Map();
@@ -241,23 +315,61 @@ const getMusterRoll = async (companyId, query) => {
     const workingDays = getEmployeeWorkingDays(profile, assignment, companyWorkingDays);
     const summary = emptySummary();
     const cells = {};
+    const pendingLeaveDays = {};
+    const approvedLeaveMap = approvedByProfile.get(profileKey) || new Map();
+    const pendingLeaveMap = pendingByProfile.get(profileKey) || new Map();
+    const compOffMap = compOffByProfile.get(profileKey) || new Map();
 
     days.forEach((dayMeta) => {
       const record = dayRecords?.get(dayMeta.date);
+      const approvedLeave = approvedLeaveMap.get(dayMeta.date);
+      const pendingLeave = pendingLeaveMap.get(dayMeta.date);
       const code = resolveCellCode({
         dayMeta,
         record,
         joiningDate: profile.joiningDate,
         today,
         workingDays,
+        approvedLeave,
       });
       cells[dayMeta.day] = code;
+      if (pendingLeave) {
+        pendingLeaveDays[dayMeta.day] = {
+          leaveRequestId: pendingLeave._id,
+          leaveTypeCode: pendingLeave.leaveTypeCode,
+          status: pendingLeave.status,
+        };
+      }
       applyToSummary(summary, code);
     });
+
+    const profileCompOff = [...compOffMap.values()].map((req) => ({
+      id: req._id,
+      attendanceDate: toDateKey(req.attendanceDate),
+      requestedDays: req.requestedDays,
+      eligibilityType: req.eligibilityType,
+      status: req.status,
+      reason: req.reason,
+    }));
+
+    const profileLeaves = leaveRequests
+      .filter(
+        (leave) => String(leave.employeeProfileId?._id || leave.employeeProfileId) === profileKey
+      )
+      .map((leave) => ({
+        id: leave._id,
+        leaveTypeCode: leave.leaveTypeCode,
+        startDate: leave.startDate,
+        endDate: leave.endDate,
+        totalDays: leave.totalDays,
+        status: leave.status,
+        reason: leave.reason,
+      }));
 
     return {
       employeeProfileId: profile._id,
       employeeId: profile.employeeId,
+      userId: profile.userId?._id || profile.userId,
       name: profile.userId?.fullName
         || `${profile.userId?.firstName || ''} ${profile.userId?.lastName || ''}`.trim()
         || profile.employeeId,
@@ -267,6 +379,9 @@ const getMusterRoll = async (companyId, query) => {
       workingDays,
       status: profile.status,
       days: cells,
+      pendingLeaveDays,
+      leaveRequests: profileLeaves,
+      compOffRequests: profileCompOff,
       summary,
     };
   });

@@ -20,9 +20,22 @@ const getActiveShiftId = async (employeeProfileId, companyId) => {
   return assignment?.shiftId?.toString() ?? null;
 };
 
+const formatRole = (roleId) => {
+  if (!roleId) return null;
+  if (typeof roleId === 'object' && roleId.slug) {
+    return {
+      id: roleId._id ?? roleId.id ?? null,
+      name: roleId.name || null,
+      slug: roleId.slug,
+    };
+  }
+  return null;
+};
+
 const formatEmployee = (profile, shiftId = null) => {
   if (!profile) return null;
   const user = profile.userId;
+  const role = formatRole(user?.roleId);
   return {
     id: profile._id,
     userId: user?._id || profile.userId,
@@ -35,6 +48,8 @@ const formatEmployee = (profile, shiftId = null) => {
     officialEmail: profile.officialEmail,
     personalEmail: profile.personalEmail,
     phone: profile.phone || user?.phone,
+    role,
+    roleSlug: role?.slug || null,
     company: profile.companyId,
     department: profile.departmentId,
     designation: profile.designationId,
@@ -170,6 +185,12 @@ const createEmployee = async (data, companyId, actorId, req) => {
         req
       );
     }
+
+    const { initializeLeaveBalances } = require('../leave/helpers/balanceInit.helper');
+    await initializeLeaveBalances(profile, user._id, companyId, {
+      skipExisting: false,
+      reason: 'Initial leave balance on employee creation',
+    });
 
     const populated = await employeeRepository.findByIdWithDetails(profile._id, companyId);
     const activeShiftId = shiftId ? shiftId.toString() : await getActiveShiftId(profile._id, companyId);
@@ -329,6 +350,8 @@ const getMyProfile = async (userId, companyId) => {
     designationName,
     shiftTime: shift ? `${shift.startTime} - ${shift.endTime}` : null,
     workingDays: shift?.workingDays || [],
+    role: formatted.role,
+    roleSlug: formatted.roleSlug,
     managerName,
     managerId,
     gender: profile.gender || null,
@@ -594,8 +617,10 @@ const removeMyProfilePhoto = async (userId, companyId, req) => {
 
 const getProfilePhotoUrlForUser = async (userId, companyId) => {
   const profile = await employeeRepository.findByUserId(userId, companyId);
-  if (!profile?.profilePhoto) return null;
-  return profile.profilePhoto;
+  if (profile?.profilePhoto) return profile.profilePhoto;
+
+  const user = await User.findById(userId).select('profilePhoto');
+  return user?.profilePhoto || null;
 };
 
 const getProfilePhotoUrl = async (id, companyId) => {

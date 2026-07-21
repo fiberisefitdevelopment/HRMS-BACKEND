@@ -14,7 +14,11 @@ class EmployeeRepository extends BaseRepository {
     if (options.companyId) queryOptions.companyId = options.companyId;
 
     const q = EmployeeProfile.find({ ...filter, isDeleted: false }, null, queryOptions)
-      .populate('userId', 'firstName lastName fullName email phone isActive status roleId')
+      .populate({
+        path: 'userId',
+        select: 'firstName lastName fullName email phone isActive status roleId',
+        populate: { path: 'roleId', select: 'name slug' },
+      })
       .populate('departmentId', 'name code')
       .populate('designationId', 'name code')
       .populate('managerId', 'firstName lastName fullName email')
@@ -34,7 +38,11 @@ class EmployeeRepository extends BaseRepository {
 
   findByIdWithDetails(id, companyId) {
     return EmployeeProfile.findOne({ _id: id, companyId, isDeleted: false }, null, { companyId })
-      .populate('userId', 'firstName lastName fullName email phone isActive status roleId')
+      .populate({
+        path: 'userId',
+        select: 'firstName lastName fullName email phone isActive status roleId',
+        populate: { path: 'roleId', select: 'name slug' },
+      })
       .populate('departmentId', 'name code')
       .populate('designationId', 'name code')
       .populate('managerId', 'firstName lastName fullName email employeeCode')
@@ -43,7 +51,11 @@ class EmployeeRepository extends BaseRepository {
 
   findByUserId(userId, companyId) {
     return EmployeeProfile.findOne({ userId, companyId, isDeleted: false }, null, { companyId })
-      .populate('userId', 'firstName lastName fullName email phone')
+      .populate({
+        path: 'userId',
+        select: 'firstName lastName fullName email phone isActive status roleId',
+        populate: { path: 'roleId', select: 'name slug' },
+      })
       .populate('departmentId', 'name code')
       .populate('designationId', 'name code')
       .populate('managerId', 'firstName lastName fullName email');

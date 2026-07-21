@@ -17,8 +17,11 @@ const { seedHolidays } = require('./seedHolidays');
 const { seedWorkflowTemplates } = require('./seedWorkflow');
 const { seedPolicyEngine } = require('./seedPolicyEngine');
 const { seedHrmsExcelData } = require('./seedHrmsExcelData');
+const { seedManagerTestData } = require('./seedManagerTestData');
+const { seedEmployeeAttendanceTestData } = require('./seedEmployeeAttendanceTestData');
 const { migrateLeaveSingleApproval } = require('../migrations/migrateLeaveSingleApproval');
 const { migrateEmployeeCodes } = require('../migrations/migrateEmployeeCodes');
+const { migrateLeaveBalances } = require('../migrations/migrateLeaveBalances');
 
 const seedDatabase = async () => {
   const permissionCount = await Permission.countDocuments();
@@ -31,8 +34,11 @@ const seedDatabase = async () => {
     await seedWorkflowTemplates();
     await seedPolicyEngine();
     await seedHrmsExcelData();
+    await seedManagerTestData();
+    await seedEmployeeAttendanceTestData();
     await migrateLeaveSingleApproval();
     await migrateEmployeeCodes();
+    await migrateLeaveBalances();
     dbLogger.info('Database already seeded — permissions synced');
     return;
   }
@@ -79,8 +85,11 @@ const seedDatabase = async () => {
   await seedWorkflowTemplates();
   await seedPolicyEngine();
   await seedHrmsExcelData();
+  await seedManagerTestData();
+  await seedEmployeeAttendanceTestData();
   await migrateLeaveSingleApproval();
   await migrateEmployeeCodes();
+  await migrateLeaveBalances();
 
   const owner = await User.findOne({ employeeCode: 'FR0001' });
 
