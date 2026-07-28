@@ -1,0 +1,140 @@
+{
+  "info": {
+    "name": "HRMS Comp-off",
+    "description": "Raise compensatory off, eligibility preview, list/cancel, and workflow approve. After approval, use Leave APIs with COMP_OFF.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5001/api/v1" },
+    { "key": "accessToken", "value": "" },
+    { "key": "compOffId", "value": "" },
+    { "key": "workflowInstanceId", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Eligibility",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/comp-off/eligibility",
+          "host": ["{{baseUrl}}"],
+          "path": ["comp-off", "eligibility"],
+          "query": [{ "key": "date", "value": "", "disabled": true }]
+        }
+      }
+    },
+    {
+      "name": "Raise Comp-off",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reason\": \"Worked late to finish release\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/comp-off",
+          "host": ["{{baseUrl}}"],
+          "path": ["comp-off"]
+        }
+      }
+    },
+    {
+      "name": "List Comp-off Requests",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/comp-off",
+          "host": ["{{baseUrl}}"],
+          "path": ["comp-off"],
+          "query": [
+            { "key": "status", "value": "pending", "disabled": true },
+            { "key": "scope", "value": "self", "disabled": true }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Comp-off by ID",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/comp-off/{{compOffId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["comp-off", "{{compOffId}}"]
+        }
+      }
+    },
+    {
+      "name": "Cancel Comp-off",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reason\": \"No longer needed\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/comp-off/{{compOffId}}/cancel",
+          "host": ["{{baseUrl}}"],
+          "path": ["comp-off", "{{compOffId}}", "cancel"]
+        }
+      }
+    },
+    {
+      "name": "Approve via Workflow",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"comment\": \"Approved\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/workflow/instances/{{workflowInstanceId}}/approve",
+          "host": ["{{baseUrl}}"],
+          "path": ["workflow", "instances", "{{workflowInstanceId}}", "approve"]
+        }
+      }
+    },
+    {
+      "name": "Reject via Workflow",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"comment\": \"Insufficient OT evidence\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/workflow/instances/{{workflowInstanceId}}/reject",
+          "host": ["{{baseUrl}}"],
+          "path": ["workflow", "instances", "{{workflowInstanceId}}", "reject"]
+        }
+      }
+    },
+    {
+      "name": "Apply Leave with COMP_OFF",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"leaveType\": \"comp_off\",\n  \"leaveTypeCode\": \"COMP_OFF\",\n  \"totalDays\": 0.5,\n  \"reason\": \"Using approved comp-off\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/leave",
+          "host": ["{{baseUrl}}"],
+          "path": ["leave"]
+        }
+      }
+    }
+  ]
+}
