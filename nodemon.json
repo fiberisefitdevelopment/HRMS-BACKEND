@@ -1,0 +1,14 @@
+{
+  "watch": ["src"],
+  "ext": "js,json",
+  "ignore": [
+    "logs/**",
+    "uploads/**",
+    "hrms-dump/**",
+    "node_modules/**",
+    "*.log",
+    "tmp-*.js",
+    "tmp-*.txt"
+  ],
+  "delay": 500
+}
