@@ -70,6 +70,13 @@ const updateEmployeeSchema = z
     nationality: z.string().optional(),
     personalEmail: z.string().email().optional(),
     officialEmail: z.string().email().optional(),
+    employeeId: z
+      .string()
+      .trim()
+      .min(2)
+      .max(30)
+      .regex(/^[A-Za-z0-9_-]+$/, 'Employee ID must be letters, numbers, _ or -')
+      .optional(),
     phone: z.string().optional(),
     alternatePhone: z.string().optional(),
     emergencyContactName: z.string().optional(),

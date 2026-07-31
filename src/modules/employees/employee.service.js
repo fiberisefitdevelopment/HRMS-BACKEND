@@ -1,4 +1,3 @@
-const crypto = require('crypto');
 const ApiError = require('../../utils/ApiError');
 const { hashPassword } = require('../../helpers/password');
 const { createAuditLog } = require('../../helpers/audit');
@@ -8,7 +7,8 @@ const Role = require('../roles/role.model');
 const employeeRepository = require('./employee.repository');
 const EmployeeProfile = require('./employeeProfile.model');
 const EmployeeShiftAssignment = require('../shifts/employeeShiftAssignment.model');
-const { generateEmployeeId } = require('./employeeId.generator');
+const { generateEmployeeId, syncSequenceFromCode } = require('./employeeId.generator');
+const Company = require('../companies/company.model');
 const shiftService = require('../shifts/shift.service');
 
 const getActiveShiftId = async (employeeProfileId, companyId) => {
@@ -138,7 +138,8 @@ const createEmployee = async (data, companyId, actorId, req) => {
 
   const role = await getRoleBySlug(data.roleSlug || SYSTEM_ROLES.EMPLOYEE);
   const employeeId = await generateEmployeeId(companyId, data.employmentType || 'full_time');
-  const tempPassword = data.password || `Temp@${crypto.randomBytes(4).toString('hex')}`;
+  // Default login password for newly created employees when none is provided.
+  const tempPassword = data.password || '12345';
   const hashedPassword = await hashPassword(tempPassword);
 
   let user;
@@ -256,14 +257,59 @@ const updateEmployee = async (id, data, companyId, actorId, req, options = {}) =
     }
   }
 
+  // Employees editing their own profile cannot change employee ID.
+  if (options.selfOnly && data.employeeId !== undefined) {
+    delete data.employeeId;
+  }
+
+  let nextEmployeeId = null;
+  if (data.employeeId !== undefined) {
+    nextEmployeeId = String(data.employeeId).trim().toUpperCase();
+    if (!/^[A-Z0-9_-]{2,30}$/.test(nextEmployeeId)) {
+      throw ApiError.badRequest('Employee ID must be 2–30 characters (letters, numbers, _ or -)');
+    }
+
+    if (nextEmployeeId !== String(profile.employeeId || '').toUpperCase()) {
+      const codeTakenByUser = await User.findOne({
+        companyId,
+        employeeCode: nextEmployeeId,
+        _id: { $ne: profile.userId._id },
+      });
+      if (codeTakenByUser) throw ApiError.conflict('Employee ID already assigned to another user');
+
+      const codeTakenByProfile = await employeeRepository.findOne(
+        { companyId, employeeId: nextEmployeeId, _id: { $ne: id } },
+        null,
+        { companyId }
+      );
+      if (codeTakenByProfile) throw ApiError.conflict('Employee ID already exists in this company');
+    } else {
+      nextEmployeeId = null;
+    }
+  }
+
   const userUpdate = {};
-  if (data.firstName) userUpdate.firstName = data.firstName;
-  if (data.lastName !== undefined) userUpdate.lastName = data.lastName;
-  if (data.phone) userUpdate.phone = data.phone;
+  if (data.firstName !== undefined) userUpdate.firstName = String(data.firstName).trim();
+  if (data.lastName !== undefined) {
+    userUpdate.lastName = data.lastName == null ? '' : String(data.lastName).trim();
+  }
+  if (data.phone !== undefined) userUpdate.phone = data.phone ? String(data.phone).trim() : data.phone;
   if (data.managerId !== undefined) userUpdate.managerId = data.managerId;
   if (data.officialEmail !== undefined) {
     userUpdate.email = String(data.officialEmail).toLowerCase().trim();
   }
+  if (nextEmployeeId) {
+    userUpdate.employeeCode = nextEmployeeId;
+  }
+
+  // findByIdAndUpdate bypasses pre('save'), so keep fullName in sync explicitly.
+  if (userUpdate.firstName !== undefined || userUpdate.lastName !== undefined) {
+    const first = userUpdate.firstName ?? profile.userId.firstName ?? '';
+    const last =
+      userUpdate.lastName !== undefined ? userUpdate.lastName : profile.userId.lastName || '';
+    userUpdate.fullName = [first, last].filter(Boolean).join(' ').trim();
+  }
+
   if (Object.keys(userUpdate).length) {
     userUpdate.updatedBy = actorId;
     await User.findByIdAndUpdate(profile.userId._id, userUpdate);
@@ -272,14 +318,30 @@ const updateEmployee = async (id, data, companyId, actorId, req, options = {}) =
   const { shiftId, ...profileUpdate } = { ...data };
   delete profileUpdate.firstName;
   delete profileUpdate.lastName;
-  delete profileUpdate.employeeId;
   delete profileUpdate.employeeCode;
+  if (nextEmployeeId) {
+    profileUpdate.employeeId = nextEmployeeId;
+  } else {
+    delete profileUpdate.employeeId;
+  }
   if (data.officialEmail !== undefined) {
     profileUpdate.officialEmail = String(data.officialEmail).toLowerCase().trim();
   }
   profileUpdate.updatedBy = actorId;
 
   await employeeRepository.updateById(id, profileUpdate, { companyId });
+
+  if (nextEmployeeId) {
+    const company = await Company.findById(companyId).select('companyCode');
+    if (company?.companyCode) {
+      await syncSequenceFromCode({
+        companyId,
+        companyCode: company.companyCode,
+        employmentType: data.employmentType || profile.employmentType || 'full_time',
+        employeeCode: nextEmployeeId,
+      });
+    }
+  }
 
   if (shiftId !== undefined) {
     if (shiftId) {
