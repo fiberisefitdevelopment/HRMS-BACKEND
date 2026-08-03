@@ -37,7 +37,7 @@ const FIBERISE_POLICY = {
   isDefault: true,
   officeTimings: { defaultStart: '09:00 AM', defaultEnd: '06:00 PM' },
   workingDays: [1, 2, 3, 4, 5],
-  gracePeriodMinutes: 15,
+  gracePeriodMinutes: 30,
   regularization: {
     enabled: true,
     windowStart: '09:30 AM',
@@ -54,7 +54,7 @@ const FIBERISE_POLICY = {
       { name: 'Tea Break 2', type: 'tea_break_2', start: '04:00 PM', durationMinutes: 15 },
     ],
   },
-  latePolicy: { enabled: true, gracePeriodMinutes: 15, markAsLateAfterGrace: true },
+  latePolicy: { enabled: true, gracePeriodMinutes: 30, markAsLateAfterGrace: true },
   missingPunchRules: { markAbsentIfNoPunchIn: true, markMissingPunchIfNoPunchOut: true },
   autoPunchOut: { enabled: true, time: '11:00 PM' },
   futureSettings: { workFromHomeEnabled: true, outdoorDutyEnabled: false },

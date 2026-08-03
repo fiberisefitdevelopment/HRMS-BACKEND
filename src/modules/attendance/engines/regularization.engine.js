@@ -44,9 +44,17 @@ const evaluateRegularization = async (punchInTime, shiftConfig, companyId, emplo
 const evaluateLateArrival = (punchInTime, shiftConfig) => {
   const punchMinutes = getMinutesFromDate(punchInTime);
   const shiftStart = Number(shiftConfig.shiftStartMinutes) || 0;
-  const grace =
-    shiftConfig.gracePeriodMinutes ?? shiftConfig.latePolicy?.gracePeriodMinutes ?? 0;
-  const lateThreshold = shiftStart + Number(grace || 0);
+
+  // Fiberise-style daily wage buffer: arrival up to windowEnd (e.g. 09:30) is not late.
+  const buffer = shiftConfig.dailyWageBuffer;
+  let lateThreshold = shiftStart;
+  if (buffer?.enabled && buffer.windowEnd) {
+    lateThreshold = parseTimeToMinutes(buffer.windowEnd);
+  } else {
+    const grace =
+      shiftConfig.gracePeriodMinutes ?? shiftConfig.latePolicy?.gracePeriodMinutes ?? 0;
+    lateThreshold = shiftStart + Number(grace || 0);
+  }
 
   if (punchMinutes <= lateThreshold) {
     return { isLate: false, lateByMinutes: 0 };
