@@ -27,13 +27,29 @@ const getGeofencingEnabled = async (companyId) => {
   }
 };
 
-const listGeofences = async (companyId, query = {}) => {
+const listGeofences = async (companyId, query = {}, options = {}) => {
+  const geofencingEnabled = await getGeofencingEnabled(companyId);
+
+  // When policy is off, employees/mobile must not receive office zones (no radius on map).
+  // HR with geofence.manage can still list them for configuration.
+  if (!geofencingEnabled && !options.includeWhenDisabled) {
+    return {
+      data: [],
+      meta: {
+        page: 1,
+        limit: 0,
+        total: 0,
+        totalPages: 0,
+        geofencingEnabled: false,
+      },
+    };
+  }
+
   const filter = { companyId };
   if (query.isActive === 'true') filter.isActive = true;
   if (query.isActive === 'false') filter.isActive = false;
 
   const result = await geofenceRepository.findMany(filter, query, { companyId });
-  const geofencingEnabled = await getGeofencingEnabled(companyId);
   return {
     data: result.data.map(formatGeofence),
     meta: { ...result.meta, geofencingEnabled },

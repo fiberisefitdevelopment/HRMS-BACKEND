@@ -3,7 +3,12 @@ const { sendSuccess, sendCreated } = require('../../helpers/response');
 const geofenceService = require('./geofence.service');
 
 const list = catchAsync(async (req, res) => {
-  const { data, meta } = await geofenceService.listGeofences(req.companyId, req.query);
+  const permissions = req.permissions || [];
+  const includeWhenDisabled =
+    req.user?.roleSlug === 'owner' || permissions.includes('geofence.manage');
+  const { data, meta } = await geofenceService.listGeofences(req.companyId, req.query, {
+    includeWhenDisabled,
+  });
   sendSuccess(res, { message: 'Geofences retrieved', data, meta });
 });
 
