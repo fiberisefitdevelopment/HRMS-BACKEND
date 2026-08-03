@@ -2,6 +2,7 @@ const ApiError = require('../../utils/ApiError');
 const { createAuditLog } = require('../../helpers/audit');
 const geofenceRepository = require('./geofence.repository');
 const geofenceEngine = require('../attendance/engines/geofence.engine');
+const policyEngine = require('../attendance/engines/policy.engine');
 
 const formatGeofence = (g) => ({
   id: g._id,
@@ -17,13 +18,26 @@ const formatGeofence = (g) => ({
   updatedAt: g.updatedAt,
 });
 
+const getGeofencingEnabled = async (companyId) => {
+  try {
+    const policy = await policyEngine.getPolicyForCompany(companyId);
+    return policy.geofencing?.enabled === true;
+  } catch {
+    return false;
+  }
+};
+
 const listGeofences = async (companyId, query = {}) => {
   const filter = { companyId };
   if (query.isActive === 'true') filter.isActive = true;
   if (query.isActive === 'false') filter.isActive = false;
 
   const result = await geofenceRepository.findMany(filter, query, { companyId });
-  return { data: result.data.map(formatGeofence), meta: result.meta };
+  const geofencingEnabled = await getGeofencingEnabled(companyId);
+  return {
+    data: result.data.map(formatGeofence),
+    meta: { ...result.meta, geofencingEnabled },
+  };
 };
 
 const getGeofence = async (id, companyId) => {
@@ -91,9 +105,27 @@ const deleteGeofence = async (id, companyId, actorId, req) => {
 };
 
 const validateLocation = async (companyId, latitude, longitude) => {
+  const geofencingEnabled = await getGeofencingEnabled(companyId);
+
+  // Policy off: mobile/web must treat location as allowed (no office zone required).
+  if (!geofencingEnabled) {
+    return {
+      allowed: true,
+      skipped: true,
+      reason: 'geofencing_disabled',
+      geofencingEnabled: false,
+      distanceMeters: null,
+      matchedOffice: null,
+      nearestOffice: null,
+    };
+  }
+
   const result = await geofenceEngine.evaluateLocation(companyId, latitude, longitude);
   return {
     allowed: result.allowed,
+    skipped: false,
+    reason: result.reason,
+    geofencingEnabled: true,
     distanceMeters: result.distanceMeters,
     matchedOffice: result.matchedOffice,
     nearestOffice: result.nearestOffice,
