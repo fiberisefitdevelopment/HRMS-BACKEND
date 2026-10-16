@@ -6,6 +6,9 @@ const User = require('../users/user.model');
 const Role = require('../roles/role.model');
 const employeeRepository = require('./employee.repository');
 const EmployeeProfile = require('./employeeProfile.model');
+const DeletedEmployee = require('./deletedEmployee.model');
+const authRepository = require('../auth/auth.repository');
+const { parsePagination, buildPaginationMeta } = require('../../utils/pagination');
 const EmployeeShiftAssignment = require('../shifts/employeeShiftAssignment.model');
 const { generateEmployeeId, syncSequenceFromCode } = require('./employeeId.generator');
 const Company = require('../companies/company.model');
@@ -275,14 +278,18 @@ const updateEmployee = async (id, data, companyId, actorId, req, options = {}) =
         employeeCode: nextEmployeeId,
         _id: { $ne: profile.userId._id },
       });
-      if (codeTakenByUser) throw ApiError.conflict('Employee ID already assigned to another user');
+      if (codeTakenByUser) {
+        throw ApiError.conflict('Employee ID is already assigned and is never reused, including after an employee is deleted');
+      }
 
       const codeTakenByProfile = await employeeRepository.findOne(
         { companyId, employeeId: nextEmployeeId, _id: { $ne: id } },
         null,
         { companyId }
       );
-      if (codeTakenByProfile) throw ApiError.conflict('Employee ID already exists in this company');
+      if (codeTakenByProfile) {
+        throw ApiError.conflict('Employee ID is already assigned and is never reused, including after an employee is deleted');
+      }
     } else {
       nextEmployeeId = null;
     }
@@ -529,13 +536,201 @@ const setEmployeeStatus = async (id, status, companyId, actorId, req, userActive
   return getEmployee(id, companyId);
 };
 
+const refId = (value) => {
+  if (!value) return null;
+  if (value._id) return value._id;
+  return value;
+};
+
+const snapshotProfile = (profile) => {
+  const snapshot = profile.toObject();
+  snapshot.userId = refId(profile.userId);
+  snapshot.companyId = refId(profile.companyId);
+  snapshot.departmentId = refId(profile.departmentId);
+  snapshot.designationId = refId(profile.designationId);
+  snapshot.managerId = refId(profile.managerId);
+  delete snapshot._id;
+  return snapshot;
+};
+
+const formatDeletedEmployee = (record) => ({
+  id: record._id,
+  employeeProfileId: record.employeeProfileId,
+  userId: record.userId,
+  employeeId: record.employeeId,
+  firstName: record.firstName,
+  lastName: record.lastName,
+  fullName: record.fullName,
+  email: record.email,
+  phone: record.phone,
+  officialEmail: record.officialEmail,
+  department: record.departmentName ? { name: record.departmentName } : null,
+  designation: record.designationName ? { name: record.designationName } : null,
+  employmentType: record.employmentType,
+  joiningDate: record.joiningDate,
+  profilePhoto: record.profilePhoto,
+  previousStatus: record.previousStatus,
+  deletedAt: record.deletedAt,
+});
+
 const softDeleteEmployee = async (id, companyId, actorId, req) => {
   const profile = await employeeRepository.findByIdWithDetails(id, companyId);
   if (!profile) throw ApiError.notFound('Employee not found');
 
-  throw ApiError.badRequest(
-    'Employee records cannot be deleted. Assigned employee codes are permanent — block access instead.'
+  const user = profile.userId;
+  if (!user?._id) throw ApiError.badRequest('Employee account is missing');
+
+  if (user.roleId?.slug === SYSTEM_ROLES.OWNER) {
+    throw ApiError.badRequest('The company owner cannot be deleted');
+  }
+
+  const deletedAt = new Date();
+  await DeletedEmployee.findOneAndUpdate(
+    { companyId, employeeProfileId: profile._id },
+    {
+      $set: {
+        companyId,
+        employeeProfileId: profile._id,
+        userId: user._id,
+        employeeId: profile.employeeId,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        fullName: user.fullName,
+        email: user.email,
+        phone: profile.phone || user.phone,
+        officialEmail: profile.officialEmail,
+        departmentName: profile.departmentId?.name || null,
+        designationName: profile.designationId?.name || null,
+        employmentType: profile.employmentType,
+        joiningDate: profile.joiningDate,
+        profilePhoto: profile.profilePhoto,
+        previousStatus: profile.status,
+        previousUserActive: user.isActive !== false,
+        previousUserStatus: user.status || 'active',
+        previousUserBlocked: Boolean(user.isBlocked),
+        previousBlockedBy: user.blockedBy || null,
+        previousBlockedReason: user.blockedReason || null,
+        previousBlockedAt: user.blockedAt || null,
+        profileSnapshot: snapshotProfile(profile),
+        deletedAt,
+        deletedBy: actorId,
+      },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
   );
+
+  await EmployeeProfile.findByIdAndUpdate(profile._id, {
+    isDeleted: true,
+    deletedAt,
+    deletedBy: actorId,
+    status: 'inactive',
+    updatedBy: actorId,
+  });
+
+  await User.findByIdAndUpdate(user._id, {
+    isActive: false,
+    status: 'inactive',
+    isBlocked: true,
+    blockedBy: actorId,
+    blockedReason: 'Employee deleted',
+    blockedAt: deletedAt,
+    updatedBy: actorId,
+  });
+
+  await authRepository.revokeAllUserSessions(user._id);
+
+  await createAuditLog({
+    companyId,
+    userId: actorId,
+    subjectUserId: user._id,
+    action: 'delete',
+    entityType: 'employee',
+    entityId: profile._id,
+    metadata: { employeeId: profile.employeeId },
+    req,
+  });
+};
+
+const listDeletedEmployees = async (companyId, query) => {
+  const { page, limit, skip } = parsePagination(query);
+  const filter = { companyId };
+
+  if (query.search) {
+    const regex = { $regex: query.search, $options: 'i' };
+    filter.$or = [
+      { fullName: regex },
+      { firstName: regex },
+      { lastName: regex },
+      { email: regex },
+      { employeeId: regex },
+      { phone: regex },
+      { officialEmail: regex },
+    ];
+  }
+
+  const [data, total] = await Promise.all([
+    DeletedEmployee.find(filter, null, { companyId })
+      .sort({ deletedAt: -1 })
+      .skip(skip)
+      .limit(limit),
+    DeletedEmployee.countDocuments(filter, { companyId }),
+  ]);
+
+  return {
+    data: data.map(formatDeletedEmployee),
+    meta: buildPaginationMeta(total, page, limit),
+  };
+};
+
+const restoreEmployee = async (deletedId, companyId, actorId, req) => {
+  const record = await DeletedEmployee.findOne({ _id: deletedId, companyId }, null, { companyId });
+  if (!record) throw ApiError.notFound('Deleted employee not found');
+
+  const profile = await EmployeeProfile.findOne(
+    { _id: record.employeeProfileId, companyId },
+    null,
+    { companyId }
+  );
+  if (!profile) throw ApiError.notFound('Employee profile not found');
+
+  await EmployeeProfile.findByIdAndUpdate(profile._id, {
+    isDeleted: false,
+    deletedAt: null,
+    deletedBy: null,
+    status: record.previousStatus || 'active',
+    updatedBy: actorId,
+  });
+
+  const userActive = record.previousUserActive !== false;
+  const restoredStatus = userActive
+    ? (record.previousUserStatus && record.previousUserStatus !== 'inactive'
+      ? record.previousUserStatus
+      : 'active')
+    : 'inactive';
+  await User.findByIdAndUpdate(record.userId, {
+    isActive: userActive,
+    status: restoredStatus,
+    isBlocked: Boolean(record.previousUserBlocked),
+    blockedBy: record.previousUserBlocked ? record.previousBlockedBy || null : null,
+    blockedReason: record.previousUserBlocked ? record.previousBlockedReason || null : null,
+    blockedAt: record.previousUserBlocked ? record.previousBlockedAt || null : null,
+    updatedBy: actorId,
+  });
+
+  await DeletedEmployee.deleteOne({ _id: record._id, companyId });
+
+  await createAuditLog({
+    companyId,
+    userId: actorId,
+    subjectUserId: record.userId,
+    action: 'activate',
+    entityType: 'employee',
+    entityId: profile._id,
+    metadata: { employeeId: record.employeeId, restored: true },
+    req,
+  });
+
+  return getEmployee(profile._id, companyId);
 };
 
 const blockEmployeeAccess = async (id, companyId, actorId, req, reason) => {
@@ -730,6 +925,8 @@ module.exports = {
   deactivateEmployee: (id, companyId, actorId, req) =>
     setEmployeeStatus(id, 'inactive', companyId, actorId, req, false),
   deleteEmployee: softDeleteEmployee,
+  listDeletedEmployees,
+  restoreEmployee,
   bulkUpdate,
   uploadProfilePhoto,
   uploadMyProfilePhoto,

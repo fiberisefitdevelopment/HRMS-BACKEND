@@ -45,6 +45,7 @@ const COLLECTIONS = {
   DESIGNATIONS: 'designations',
   EMPLOYEES: 'employees',
   EMPLOYEE_PROFILES: 'employee_profiles',
+  DELETED_EMPLOYEES: 'deleted_employees',
   EMPLOYEE_ID_SEQUENCES: 'employee_id_sequences',
   MANAGERS: 'managers',
   ATTENDANCE: 'attendance',

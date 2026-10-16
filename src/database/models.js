@@ -6,6 +6,7 @@ const Session = require('../modules/auth/session.model');
 const Department = require('../modules/departments/department.model');
 const Designation = require('../modules/designations/designation.model');
 const EmployeeProfile = require('../modules/employees/employeeProfile.model');
+const DeletedEmployee = require('../modules/employees/deletedEmployee.model');
 const EmployeeIdSequence = require('../modules/employees/employeeIdSequence.model');
 const CompanyAttendancePolicy = require('../modules/attendance-policies/companyAttendancePolicy.model');
 const Shift = require('../modules/shifts/shift.model');
@@ -53,6 +54,7 @@ module.exports = {
   Department,
   Designation,
   EmployeeProfile,
+  DeletedEmployee,
   EmployeeIdSequence,
   CompanyAttendancePolicy,
   Shift,

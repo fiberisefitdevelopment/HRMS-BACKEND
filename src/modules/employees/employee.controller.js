@@ -54,7 +54,7 @@ const deactivate = catchAsync(async (req, res) => {
 
 const remove = catchAsync(async (req, res) => {
   await employeeService.deleteEmployee(req.params.id, req.companyId, req.user.id, req);
-  sendSuccess(res, { message: 'Employee deleted' });
+  sendSuccess(res, { message: 'Employee moved to Deleted Employees' });
 });
 
 const bulkActivate = catchAsync(async (req, res) => {
@@ -81,11 +81,34 @@ const bulkDeactivate = catchAsync(async (req, res) => {
   sendSuccess(res, { message: 'Bulk deactivation completed', data: results });
 });
 
+const listDeleted = catchAsync(async (req, res) => {
+  const { data, meta } = await employeeService.listDeletedEmployees(req.companyId, req.query);
+  sendSuccess(res, { message: 'Deleted employees retrieved', data, meta });
+});
+
+const restore = catchAsync(async (req, res) => {
+  const data = await employeeService.restoreEmployee(req.params.id, req.companyId, req.user.id, req);
+  sendSuccess(res, { message: 'Employee restored', data });
+});
+
 const bulkDelete = catchAsync(async (req, res) => {
+  const results = { success: 0, failed: 0, errors: [] };
+
   for (const id of req.body.employeeIds) {
-    await employeeService.deleteEmployee(id, req.companyId, req.user.id, req);
+    try {
+      await employeeService.deleteEmployee(id, req.companyId, req.user.id, req);
+      results.success += 1;
+    } catch (error) {
+      results.failed += 1;
+      results.errors.push({ id, message: error.message });
+    }
   }
-  sendSuccess(res, { message: 'Bulk delete completed', data: { count: req.body.employeeIds.length } });
+
+  if (results.success === 0 && results.failed > 0) {
+    throw ApiError.badRequest(results.errors[0]?.message || 'Delete failed');
+  }
+
+  sendSuccess(res, { message: 'Employees moved to Deleted Employees', data: results });
 });
 
 const bulkDepartment = catchAsync(async (req, res) => {
@@ -212,6 +235,8 @@ module.exports = {
   getById,
   getMe,
   list,
+  listDeleted,
+  restore,
   activate,
   deactivate,
   remove,

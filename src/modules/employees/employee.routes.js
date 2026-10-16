@@ -61,6 +61,14 @@ router.post('/bulk/department', requirePermission('employee.bulk'), validate(bul
 router.post('/bulk/designation', requirePermission('employee.bulk'), validate(bulkDesignationSchema), employeeController.bulkDesignation);
 router.post('/bulk/manager', requirePermission('employee.bulk'), validate(bulkManagerSchema), employeeController.bulkManager);
 
+router.get('/deleted', requirePermission('employee.delete'), employeeController.listDeleted);
+router.post(
+  '/deleted/:id/restore',
+  requirePermission('employee.delete'),
+  validate(employeeIdParamSchema, 'params'),
+  employeeController.restore
+);
+
 router.get(
   '/:id',
   requirePermission('employee.read'),

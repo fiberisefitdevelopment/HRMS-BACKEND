@@ -27,6 +27,9 @@ const parseSequenceNumber = (employeeCode, prefix) => {
 
 const formatEmployeeId = (prefix, number) => `${prefix}${String(number).padStart(4, '0')}`;
 
+// Sequence only moves forward. Deleting an employee does not return their number,
+// so a code such as FR0002 is never issued to someone else.
+
 const reserveEmployeeId = async ({ companyId, companyCode, employmentType, employeeCode }) => {
   const prefix = getPrefixForCompany(companyCode, employmentType);
   const sequenceKey = getSequenceKey(companyCode, employmentType);

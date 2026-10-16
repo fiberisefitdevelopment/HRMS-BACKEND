@@ -40,7 +40,7 @@ class EmployeeRepository extends BaseRepository {
     return EmployeeProfile.findOne({ _id: id, companyId, isDeleted: false }, null, { companyId })
       .populate({
         path: 'userId',
-        select: 'firstName lastName fullName email phone isActive status roleId',
+        select: 'firstName lastName fullName email phone isActive status roleId isBlocked blockedBy blockedReason blockedAt',
         populate: { path: 'roleId', select: 'name slug' },
       })
       .populate('departmentId', 'name code')
